@@ -1,5 +1,7 @@
 # Babinium-play
 
+![Captura de pantalla de Babinium-play](screenshot.png)
+
 **Babinium-play** es un reproductor de música y videos de YouTube ligero y minimalista, diseñado para funcionar de manera eficiente incluso en sistemas con recursos limitados (como AntiX o Zorin OS Lite).
 
 ## Características principales
