@@ -5,7 +5,7 @@
   <img src="Babinium-play2.png" width="48%" />
 </p>
 
-**Babinium-play** es un reproductor de música y videos de YouTube ligero y minimalista, diseñado específicamente para distribuciones Linux **derivadas de Debian y Ubuntu** (como AntiX, Zorin OS Lite, Linux Mint, etc.). Está optimizado para funcionar de manera eficiente incluso en equipos con recursos limitados.
+**Babinium-play** es un reproductor de música y videos de YouTube ligero y minimalista. Aunque está optimizado para distribuciones Linux **derivadas de Debian y Ubuntu** (como AntiX, Zorin OS Lite, Linux Mint, etc.), es compatible con otros sistemas Linux. Está diseñado para funcionar de manera eficiente incluso en equipos con recursos limitados.
 
 ## Características principales
 
