@@ -16,8 +16,9 @@
 
 ## Requisitos
 
-- Python 3.x
-- Dependencias listadas en `requirements.txt`
+- **mpv**: Reproductor de video (debe estar instalado en el sistema).
+- **Python 3.x**: El lenguaje de programación.
+- **Dependencias de Python**: Listadas en `requirements.txt`.
 
 ## Instalación
 
