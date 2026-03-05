@@ -31,7 +31,9 @@ Esta es la forma más sencilla de instalar Babinium-play en sistemas basados en 
    ```
    *Nota: Esto instalará automáticamente todas las dependencias necesarias.*
 
-### Opción 2: Desde el código fuente (Para desarrolladores)
+### Opción 2: Desde el código fuente (Para otros sistemas o desarrolladores)
+Si no utilizas una distribución basada en Debian, o si prefieres ejecutarlo manualmente, puedes usar esta opción:
+
 1. Clona el repositorio:
    ```bash
    git clone https://github.com/babinium/Babinium-play.git
