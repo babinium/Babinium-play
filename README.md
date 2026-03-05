@@ -1,9 +1,8 @@
 # Babinium-play
 
 <p align="center">
-  <img src="Babinium-play.png" width="32%" />
-  <img src="Babinium-play2.png" width="32%" />
-  <img src="Babinium-play3.png" width="32%" />
+  <img src="Babinium-play.png" width="48%" />
+  <img src="Babinium-play2.png" width="48%" />
 </p>
 
 **Babinium-play** es un reproductor de música y videos de YouTube ligero y minimalista, diseñado para funcionar de manera eficiente incluso en sistemas con recursos limitados (como AntiX o Zorin OS Lite).
