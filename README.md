@@ -16,6 +16,17 @@
 
 ## Instalación
 
+### Opción 1: Paquete .deb (Recomendado para principiantes)
+Esta es la forma más sencilla de instalar Babinium-play en sistemas basados en Debian/Ubuntu (como AntiX o Zorin OS):
+
+1. Ve a la sección de [Releases](https://github.com/babinium/Babinium-play/releases) y descarga el archivo `.deb` más reciente.
+2. Abre una terminal en la carpeta donde lo descargaste y ejecuta:
+   ```bash
+   sudo apt install ./babinium-play.deb
+   ```
+   *Nota: Esto instalará automáticamente todas las dependencias necesarias.*
+
+### Opción 2: Desde el código fuente (Para desarrolladores)
 1. Clona el repositorio:
    ```bash
    git clone https://github.com/babinium/Babinium-play.git
