@@ -17,6 +17,9 @@
 ## Requisitos
 
 - **mpv**: Reproductor de video (debe estar instalado en el sistema).
+  ```bash
+  sudo apt install mpv
+  ```
 - **Python 3.x**: El lenguaje de programación.
 - **Dependencias de Python**: Listadas en `requirements.txt`.
 
