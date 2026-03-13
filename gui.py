@@ -71,6 +71,13 @@ class BatubeApp:
         self.config_dir = os.path.join(pathlib.Path.home(), ".config", "babinium-play")
         os.makedirs(self.config_dir, exist_ok=True)
         self.persist_file = os.path.join(self.config_dir, "subscriptions.csv")
+        self.favorites_file = os.path.join(self.config_dir, "favorites.json")
+        self.favorites = self.load_favorites()
+        self.is_showing_favorites = False
+        self.is_showing_playlist = False
+        self.previous_results = []
+        self.manual_stop_requested = False
+        self.controls_frame = None
         
         # UI Setup
         self.setup_ui()
@@ -101,6 +108,42 @@ class BatubeApp:
         if os.path.exists(self.persist_file):
             print(f"Cargando suscripciones persistidas desde: {self.persist_file}")
             threading.Thread(target=self._async_import_subs, args=(self.persist_file,), daemon=True).start()
+
+    def load_favorites(self):
+        import json
+        if os.path.exists(self.favorites_file):
+            try:
+                with open(self.favorites_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error cargando favoritos: {e}")
+        return []
+
+    def save_favorites(self):
+        import json
+        try:
+            with open(self.favorites_file, 'w', encoding='utf-8') as f:
+                json.dump(self.favorites, f)
+        except Exception as e:
+            print(f"Error guardando favoritos: {e}")
+
+    def toggle_favorite(self, item, btn):
+        found_idx = next((i for i, f in enumerate(self.favorites) if f['url'] == item['url']), -1)
+        if found_idx >= 0:
+            self.favorites.pop(found_idx)
+            btn.config(text="🤍", fg=self.fg_muted)
+        else:
+            self.favorites.append(item)
+            btn.config(text="❤️", fg="red")
+        self.save_favorites()
+
+    def remove_favorite(self, item, frame):
+        found_idx = next((i for i, f in enumerate(self.favorites) if f['url'] == item['url']), -1)
+        if found_idx >= 0:
+            self.favorites.pop(found_idx)
+            self.save_favorites()
+            if self.is_showing_favorites:
+                self.show_favorites()
 
     def setup_ui(self):
         # Top Frame for search and controls
@@ -141,7 +184,10 @@ class BatubeApp:
         self.subs_btn.pack(side=tk.LEFT, padx=2)
         
         self.import_btn = tk.Button(subs_controls, text="Importar CSV", command=self.import_new_csv, bg=self.bg_panel, fg=self.fg_muted, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
-        self.import_btn.pack(side=tk.RIGHT, padx=10)
+        self.import_btn.pack(side=tk.LEFT, padx=10)
+        
+        self.fav_btn = tk.Button(subs_controls, text="Favoritos ❤️", command=self.show_favorites, bg=self.bg_panel, fg=self.fg_text, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
+        self.fav_btn.pack(side=tk.LEFT, padx=2)
         
         # Barra Inferior para Status y Progress, justo debajo de controles
         bottom_bar = tk.Frame(top_frame, bg=self.bg_panel)
@@ -280,8 +326,12 @@ class BatubeApp:
             
     def play_selected(self, event=None):
         if 0 <= self.selected_index < len(self.result_frames):
-            item = self.result_frames[self.selected_index]
-            self.play(item['url'], item['frame'])
+            item_info = self.result_frames[self.selected_index]
+            item = item_info.get('item', {})
+            if item.get('type') == 'playlist':
+                self.open_playlist(item)
+            else:
+                self.play(item_info['url'], item_info['frame'])
 
     def do_search(self):
         query = self.search_var.get().strip()
@@ -437,12 +487,39 @@ class BatubeApp:
             
     def clear_results(self):
         self._remove_load_more_btn()
+        self._remove_back_btn()
         if self.scrollable_frame:
             for widget in self.scrollable_frame.winfo_children():
                 widget.destroy()
         self.image_cache.clear()
         self.result_frames = []
         self.selected_index = -1
+
+    def show_favorites(self):
+        self.is_showing_favorites = True
+        self.is_showing_playlist = False
+        self.clear_results()
+        self.search_var.set("")
+        self.display_results(self.favorites, is_favorites_view=True)
+        if self.status_var:
+            self.status_var.set(f"Mostrando Favoritos ({len(self.favorites)})")
+
+    def _remove_back_btn(self):
+        if hasattr(self, 'back_btn') and self.back_btn:
+            self.back_btn.destroy()
+            self.back_btn = None
+        if hasattr(self, 'controls_frame') and self.controls_frame:
+            self.controls_frame.destroy()
+            self.controls_frame = None
+
+    def go_back(self):
+        self.stop_playback()
+        self.is_showing_playlist = False
+        self.is_showing_favorites = False
+        self._remove_back_btn()
+        if self.status_var:
+            self.status_var.set("Volviendo a resultados anteriores...")
+        self.display_results(self.previous_results)
 
     def _fetch_date_async(self, url, lbl_widget):
         try:
@@ -464,7 +541,29 @@ class BatubeApp:
             pass
         lbl_widget.config(text="Subido: Fecha desconocida")
 
-    def display_results(self, results, append=False):
+    def _fetch_count_async(self, url, lbl_widget, original_title):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0'
+            }
+            req = urllib.request.Request(url, headers=headers)
+            html = urllib.request.urlopen(req).read().decode('utf-8')
+            match = re.search(r'"stats":\[\{"runs":\[\{"text":"([0-9,.]+)"\}\,', html)
+            if not match:
+                match = re.search(r'"videoCountText":\{"runs":\[\{"text":"([0-9,.]+)"\}', html)
+            if match:
+                count = match.group(1)
+                self.root.after(0, lambda: lbl_widget.config(text=f"🗂️ [PLAYLIST: {count} videos] {original_title}"))
+                return
+        except Exception:
+            pass
+        self.root.after(0, lambda: lbl_widget.config(text=f"🗂️ [PLAYLIST] {original_title}"))
+
+    def display_results(self, results, append=False, is_favorites_view=False):
+        # Save for later if we are not in playlist or favorites view
+        if not self.is_showing_playlist and not self.is_showing_favorites and not append:
+            self.previous_results = list(results)
+            
         # Detener animación de progreso si estaba corriendo
         if self.progress:
             self.progress.stop()
@@ -495,8 +594,26 @@ class BatubeApp:
             info_frame = tk.Frame(frame, bg=self.bg_panel)
             info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
             
-            title_lbl = tk.Label(info_frame, text=item.get('title'), font=("Arial", 11, "bold"), anchor="w", justify=tk.LEFT, wraplength=400, bg=self.bg_panel, fg=self.fg_text)
+            # Título y badges
+            title_text = item.get('title')
+            item_type = item.get('type', 'video')
+            if item_type == 'playlist':
+                count = item.get('playlist_count', 0)
+                try:
+                    count_int = int(count)
+                except Exception:
+                    count_int = 0
+                    
+                if count_int > 0:
+                    title_text = f"🗂️ [PLAYLIST: {count} videos] {title_text}"
+                else:
+                    title_text = f"🗂️ [PLAYLIST: Calculando...] {title_text}"
+                
+            title_lbl = tk.Label(info_frame, text=title_text, font=("Arial", 11, "bold"), anchor="w", justify=tk.LEFT, wraplength=400, bg=self.bg_panel, fg=self.fg_text)
             title_lbl.pack(fill=tk.X)
+            
+            if item_type == 'playlist' and int(item.get('playlist_count', 0) or 0) == 0 and item.get('url'):
+                 threading.Thread(target=self._fetch_count_async, args=(item['url'], title_lbl, item.get('title')), daemon=True).start()
             
             uploader_lbl = tk.Label(info_frame, text=item.get('uploader'), font=("Arial", 9), anchor="w", bg=self.bg_panel, fg=self.fg_playing)
             uploader_lbl.pack(fill=tk.X)
@@ -511,13 +628,36 @@ class BatubeApp:
             duration_lbl = tk.Label(info_frame, text=f"Duración: {item.get('duration')}", font=("Arial", 8), anchor="w", bg=self.bg_panel, fg=self.fg_muted)
             duration_lbl.pack(fill=tk.X)
             
+            # Botones extra: Corazón y "X"
+            btn_frame = tk.Frame(frame, bg=self.bg_panel)
+            btn_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+            
+            is_fav = any(f['url'] == item['url'] for f in self.favorites)
+            heart_text = "❤️" if is_fav else "🤍"
+            heart_fg = "red" if is_fav else self.fg_muted
+            
+            def make_toggle(it, bt):
+                return lambda e: self.toggle_favorite(it, bt)
+                
+            heart_btn = tk.Label(btn_frame, text=heart_text, font=("Arial", 14), bg=self.bg_panel, fg=heart_fg, cursor="hand2")
+            heart_btn.pack(side=tk.TOP, pady=2)
+            heart_btn.bind("<Button-1>", make_toggle(item, heart_btn))
+            
+            if is_favorites_view:
+                def make_remove(it, fr):
+                    return lambda e: self.remove_favorite(it, fr)
+                    
+                del_btn = tk.Label(btn_frame, text="❌", font=("Arial", 12), bg=self.bg_panel, fg="red", cursor="hand2")
+                del_btn.pack(side=tk.BOTTOM, pady=2)
+                del_btn.bind("<Button-1>", make_remove(item, frame))
+            
             # Guardamos la referencia para el uso del teclado
             curr_idx = start_idx + idx
-            self.result_frames.append({'frame': frame, 'url': item.get('url'), 'index': curr_idx})
+            self.result_frames.append({'frame': frame, 'url': item.get('url'), 'index': curr_idx, 'item': item})
             
             # Añadimos los eventos de ratón
             for w in (frame, lbl_img, info_frame, title_lbl, uploader_lbl, upload_date_lbl, duration_lbl):
-                w.bind("<Button-1>", lambda e, url=item.get('url'), f=frame, i=curr_idx: self.on_item_click(url, f, i))
+                w.bind("<Button-1>", lambda e, it=item, f=frame, i=curr_idx: self.on_item_click(it, f, i))
                 
             # Añadimos el evento <Return> localmente a este cuadro (si se navegó con flechas, tendrá foco)
             frame.bind("<Return>", lambda e: self.play_selected())
@@ -525,8 +665,8 @@ class BatubeApp:
         if self.status_var:
             self.status_var.set(f"Mostrando {len(self.result_frames)} resultados.")
         
-        # Botón para cargar más
-        if results and len(results) >= 1:
+        # Botón para cargar más (Oculto en favoritos y en listas de reproducción)
+        if results and len(results) >= 1 and not is_favorites_view and not self.is_showing_playlist:
             self._remove_load_more_btn() 
             # Botón con color llamativo (Naranja/Rojo) para asegurar que se vea en AntiX
             self.load_more_btn = tk.Button(self.scrollable_frame, text=">>> MOSTRAR MÁS VIDEOS <<<", 
@@ -547,9 +687,77 @@ class BatubeApp:
         if self.result_frames and not append:
             self.update_selection(0)
 
-    def on_item_click(self, url, frame, index):
+    def on_item_click(self, item, frame, index):
         self.update_selection(index)
-        self.play(url, frame)
+        if item.get('type') == 'playlist':
+            self.open_playlist(item)
+        else:
+            self.play(item.get('url'), frame)
+
+    def open_playlist(self, item):
+        if self.status_var:
+            self.status_var.set(f"Cargando lista de reproducción: {item.get('title')}...")
+        if self.progress:
+            self.progress.configure(mode='indeterminate')
+            self.progress.start(10)
+            
+        threading.Thread(target=self._async_open_playlist, args=(item,), daemon=True).start()
+
+    def _async_open_playlist(self, item):
+        try:
+            results = self.engine.get_playlist_videos(item['url'])
+            self.root.after(0, self.display_playlist, results, item.get('title'))
+        except Exception as e:
+            self.root.after(0, lambda: self.status_var.set(f"Error cargando lista: {e}"))
+            
+    def display_playlist(self, results, title):
+        if self.progress:
+            self.progress.stop()
+            self.progress.configure(mode='determinate', value=0)
+            
+        self.is_showing_playlist = True
+        self.is_showing_favorites = False
+        self.display_results(results)
+        
+        # Add back button at the top
+        if not hasattr(self, 'back_btn') or not self.back_btn:
+            self.back_btn = tk.Button(self.scrollable_frame, text="⬅ VOLVER A RESULTADOS ANTERIORES", 
+                                      command=self.go_back, bg="#ff5722", fg="#ffffff", 
+                                      activebackground="#e64a19", relief=tk.RAISED, borderwidth=4,
+                                      font=("Arial", 12, "bold"), pady=15)
+            self.back_btn.pack(fill=tk.X, before=self.scrollable_frame.winfo_children()[0], padx=10, pady=(10, 0))
+            
+            # Add Playlist Controls (Anterior, Stop, Siguiente) just below Back button
+            self.controls_frame = tk.Frame(self.scrollable_frame, bg=self.bg_main)
+            self.controls_frame.pack(fill=tk.X, after=self.back_btn, padx=10, pady=(5, 10))
+            
+            btn_prev = tk.Button(self.controls_frame, text="⏮ Anterior", font=("Arial", 10, "bold"),
+                                 bg=self.bg_button, fg=self.fg_text, activebackground=self.bg_select,
+                                 command=lambda: self.skip_to(-1))
+            btn_prev.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+            
+            btn_stop = tk.Button(self.controls_frame, text="⏹ Parar Reproducción", font=("Arial", 10, "bold"),
+                                 bg="#f44336", fg="#ffffff", activebackground="#d32f2f",
+                                 command=self.stop_playback)
+            btn_stop.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+            
+            btn_next = tk.Button(self.controls_frame, text="Siguiente ⏭", font=("Arial", 10, "bold"),
+                                 bg=self.bg_button, fg=self.fg_text, activebackground=self.bg_select,
+                                 command=lambda: self.skip_to(1))
+            btn_next.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+            
+        if self.status_var:
+            self.status_var.set(f"Mostrando lista: {title} ({len(results)} videos)")
+            
+        # Play the first one automatically
+        if results and len(self.result_frames) > 0:
+            self.play_selected_idx(0)
+
+    def play_selected_idx(self, index):
+        if 0 <= index < len(self.result_frames):
+            self.update_selection(index)
+            item_info = self.result_frames[index]
+            self.play(item_info['url'], item_info['frame'])
 
     def _load_image_async(self, url, label_widget):
         try:
@@ -569,11 +777,14 @@ class BatubeApp:
 
     def play(self, url, source_frame):
         if self.is_playing:
-            if self.status_var:
-                self.status_var.set("Ya hay un video reproduciéndose...")
+            self.manual_stop_requested = True
+            import player
+            player.send_mpv_command({"command": ["quit"]})
+            self._wait_and_play_url(url, source_frame)
             return
             
         self.is_playing = True
+        self.manual_stop_requested = False
         self.playing_frame = source_frame
         
         quality = self.quality_var.get()
@@ -624,19 +835,71 @@ class BatubeApp:
         else:
             if self.status_var:
                 self.root.after(0, lambda: self.status_var.set("Reproduciendo en mpv."))
-            # Esperar a que el proceso de mpv termine
-            process.wait()
-            # Una vez que se cierra mpv, restaurar el color del frame en la GUI principal
-            def restore_bg():
-                if self.result_frames and self.selected_index >= 0 and self.selected_index < len(self.result_frames):
-                    is_selected = self.result_frames[self.selected_index]['frame'] == source_frame
-                    source_frame.config(bg=self.bg_select if is_selected else self.bg_panel)
-                else:
-                    source_frame.config(bg=self.bg_panel)
             
-            self.root.after(0, restore_bg)
+            def wait_for_mpv(proc):
+                proc.wait()
+                ret_code = proc.returncode
+                self.root.after(0, lambda: restore_and_next(ret_code))
+
+            def restore_and_next(ret_code):
+                try:
+                    if source_frame.winfo_exists():
+                        if self.result_frames and self.selected_index >= 0 and self.selected_index < len(self.result_frames):
+                            is_selected = self.result_frames[self.selected_index]['frame'] == source_frame
+                            source_frame.config(bg=self.bg_select if is_selected else self.bg_panel)
+                        else:
+                            source_frame.config(bg=self.bg_panel)
+                except Exception:
+                    pass
+                    
+                self.is_playing = False
+                self.playing_frame = None
+                
+                if self.status_var:
+                    self.status_var.set("Listo")
+                    
+                # Auto-play next if in playlist and ended naturally (mpv returns 0 only on natural end)
+                if self.is_showing_playlist and ret_code == 0 and not self.manual_stop_requested:
+                    next_idx = self.selected_index + 1
+                    if next_idx < len(self.result_frames):
+                        self.play_selected_idx(next_idx)
             
+            # Lanzamos la espera en un hilo para no congelar la GUI
+            threading.Thread(target=wait_for_mpv, args=(process,), daemon=True).start()
+
+    def stop_playback(self):
+        if self.is_playing:
+            self.manual_stop_requested = True
+            import player
+            player.send_mpv_command({"command": ["quit"]})
             if self.status_var:
-                self.root.after(0, lambda: self.status_var.set("Listo")) 
-            self.is_playing = False
-            self.playing_frame = None
+                self.status_var.set("Reproducción detenida.")
+                
+    def skip_to(self, delta):
+        next_idx = self.selected_index + delta
+        if 0 <= next_idx < len(self.result_frames):
+            if self.is_playing:
+                self.manual_stop_requested = True
+                import player
+                player.send_mpv_command({"command": ["quit"]})
+                self._wait_and_play(next_idx)
+            else:
+                self.play_selected_idx(next_idx)
+
+    def _wait_and_play(self, index, retries=15):
+        if not self.is_playing:
+            self.play_selected_idx(index)
+        elif retries > 0:
+            self.root.after(200, lambda: self._wait_and_play(index, retries - 1))
+        else:
+            if self.status_var:
+                self.status_var.set("No se pudo saltar al siguiente video.")
+
+    def _wait_and_play_url(self, url, source_frame, retries=15):
+        if not self.is_playing:
+            self.play(url, source_frame)
+        elif retries > 0:
+            self.root.after(200, lambda: self._wait_and_play_url(url, source_frame, retries - 1))
+        else:
+            if self.status_var:
+                self.status_var.set("No se pudo iniciar el nuevo video.")

@@ -21,7 +21,14 @@ def play_video(stream_data, quality="360"):
 
         # Log path
         log_file = "/tmp/babinium-play-mpv.log"
-        
+        # Create or ensure socket doesn't collide
+        socket_path = "/tmp/babinium_mpv_ipc"
+        try:
+            if os.path.exists(socket_path):
+                os.remove(socket_path)
+        except Exception:
+            pass
+            
         # mpv command optimizado para hardware viejo y enlaces directos
         cmd = [
             "mpv",
@@ -30,7 +37,8 @@ def play_video(stream_data, quality="360"):
             "--no-video-unscaled",
             "--cache=yes",
             "--demuxer-max-bytes=20M", 
-            "--demuxer-max-back-bytes=10M"
+            "--demuxer-max-back-bytes=10M",
+            f"--input-ipc-server={socket_path}"
         ]
 
         if headers:
@@ -50,15 +58,37 @@ def play_video(stream_data, quality="360"):
             f.write(f"\n--- Iniciando reproducción directa ---\n")
             f.write(f"Comando: {' '.join(cmd)}\n")
 
-        # Iniciar como proceso separado
+        # Iniciar como proceso separado, pero vinculado a la sesión actual
+        # para que returncode funcione correctamente. (start_new_session=True lo rompía)
         log_output = open(log_file, "a")
         process = subprocess.Popen(
             cmd,
             stdout=log_output,
-            stderr=log_output,
-            start_new_session=True
+            stderr=log_output
         )
         return process
     except Exception as e:
         print(f"Error al iniciar mpv: {e}")
+        return False
+
+def send_mpv_command(command_dict):
+    """
+    Envía un comando JSON IPC al socket de mpv.
+    Ejemplo: {"command": ["quit"]}
+    """
+    socket_path = "/tmp/babinium_mpv_ipc"
+    if not os.path.exists(socket_path):
+        return False
+        
+    try:
+        import socket
+        import json
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(socket_path)
+        message = json.dumps(command_dict) + "\n"
+        client.sendall(message.encode('utf-8'))
+        client.close()
+        return True
+    except Exception as e:
+        print(f"Error enviando comando a mpv: {e}")
         return False

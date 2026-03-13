@@ -38,21 +38,36 @@ class YouTubeEngine:
                 if 'entries' in info:
                     for entry in info['entries']:
                         if entry:
-                            # Filtrar para asegurar que es un video (no un canal ni lista)
+                            # Filtrar para asegurar que es un video o una lista de reproducción
                             url = entry.get('url', '')
-                            if '/watch?' not in url and '/shorts/' not in url:
+                            is_video = '/watch?' in url or '/shorts/' in url
+                            is_playlist = '/playlist?' in url or (entry.get('_type') == 'playlist' and 'list=' in url)
+
+                            if not (is_video or is_playlist):
                                 continue
+                            
+                            # Si es un playlist que no tiene id en la url, intentar sacar el id de 'list='
+                            import urllib.parse as up
+                            p_id = entry.get('id')
+                            if is_playlist and 'list=' in url:
+                                qs = up.parse_qs(up.urlparse(url).query)
+                                if 'list' in qs:
+                                    p_id = qs['list'][0]
+                                    
+                            item_type = 'playlist' if is_playlist else 'video'
                                 
                             thumbnail = self.get_best_thumbnail(entry.get('thumbnails', []))
                             if thumbnail:
                                 item = {
-                                    'id': entry.get('id'),
+                                    'id': p_id if is_playlist else entry.get('id'),
                                     'title': entry.get('title', 'Sin titulo'),
-                                    'url': entry.get('url'),
+                                    'url': url,
                                     'duration': self.format_duration(entry.get('duration', 0)),
                                     'thumbnail': thumbnail,
                                     'uploader': entry.get('uploader', 'Canal desconocido'),
-                                    'upload_date': self.format_date(entry.get('upload_date'))
+                                    'upload_date': self.format_date(entry.get('upload_date')),
+                                    'type': item_type,
+                                    'playlist_count': entry.get('n_entries') or entry.get('playlist_count') or entry.get('item_count') or 0
                                 }
                                 results.append(item)
             except Exception as e:
@@ -167,6 +182,48 @@ class YouTubeEngine:
                                 results.append(item)
             except Exception as e:
                 print(f"Error yt-dlp (channel): {e}")
+        return results
+
+    def get_playlist_videos(self, playlist_url, max_results=100):
+        """
+        Obtiene los videos de una lista de reproducción específica.
+        """
+        results = []
+        opts = dict(self.ydl_opts)
+        opts['extract_flat'] = True  # Solo queremos metadata rápida
+        opts['playlistend'] = max_results
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            try:
+                info = ydl.extract_info(playlist_url, download=False)
+                if 'entries' in info:
+                    for i, entry in enumerate(info['entries']):
+                        if entry:
+                            url = entry.get('url', '')
+                            if '/watch?' not in url and '/shorts/' not in url:
+                                continue
+                                
+                            # En listas, a veces no hay 'thumbnails' detallado, probamos variantes
+                            thumbnails = entry.get('thumbnails', [])
+                            thumbnail = self.get_best_thumbnail(thumbnails)
+                            if not thumbnail and 'id' in entry:
+                                thumbnail = f"https://i.ytimg.com/vi/{entry['id']}/hqdefault.jpg"
+                                
+                            if thumbnail:
+                                item = {
+                                    'id': entry.get('id'),
+                                    'title': entry.get('title', 'Sin titulo'),
+                                    'url': url,
+                                    'duration': self.format_duration(entry.get('duration', 0)),
+                                    'thumbnail': thumbnail,
+                                    'uploader': entry.get('uploader') or info.get('uploader', 'Canal desconocido'),
+                                    'upload_date': self.format_date(entry.get('timestamp') or entry.get('upload_date')),
+                                    'type': 'video'
+                                }
+                                results.append(item)
+            except Exception as e:
+                print(f"Error extrayendo playlist (yt-dlp): {e}")
+                
         return results
 
     def get_latest_video_if_today(self, channel_url):

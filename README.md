@@ -10,6 +10,9 @@
 ## Características principales
 
 - **Búsqueda Integrada**: Busca videos y música directamente desde la aplicación sin necesidad de abrir un navegador.
+- **Mejoras en el flujo de reproducción**: Experiencia de reproducción principal más robusta y fluida.
+- **Reproducción de Listas**: Capacidad de cargar y reproducir listas de reproducción (playlists) de manera continua.
+- **Sección de Favoritos**: Guarda tus videos y listas de reproducción preferidas para acceder a ellos rápidamente en cualquier momento.
 - **Reproducción Ligera**: Utiliza un motor optimizado para reproducir contenido de YouTube de forma fluida.
 - **Interfaz Sencilla**: Una GUI intuitiva construida con Python que prioriza la velocidad y la facilidad de uso.
 - **Sin Publicidad Interruptiva**: Una experiencia de visualización y escucha más limpia.
