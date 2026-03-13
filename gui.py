@@ -22,30 +22,36 @@ class BatubeApp:
         self.engine = YouTubeEngine()
         
         # State
-        self.result_frames = []
-        self.selected_index = -1
-        self.is_playing = False
-        self.playing_frame = None
+        self.result_frames: list[tk.Frame] = []
+        self.selected_index: int = -1
+        self.is_playing: bool = False
+        self.playing_frame: tk.Frame | None = None
         
         # Paginación
-        self.current_query = ""
-        self.current_offset = 0
-        self.results_per_page = 10
-        self.all_subs_channels = []
-        self.current_sub_idx = 0
-        self.subscription_file = None
-        self.subs_btn = None
-        self.progress_frame = None
-        self.progress = None
-        self.load_more_btn = None
+        self.current_query: str = ""
+        self.current_offset: int = 0
+        self.results_per_page: int = 10
+        self.all_subs_channels: list[dict] = []
+        self.current_sub_idx: int = 0
+        self.subscription_file: str | None = None
+        
+        # Elementos UI principales declarados con hints
+        self.subs_btn: tk.Button | None = None
+        self.progress_frame: tk.Frame | None = None
+        self.progress: ttk.Progressbar | None = None
+        self.load_more_btn: tk.Button | None = None
+        self.search_entry: tk.Entry | None = None
+        self.search_entry_name: str = ""
+        self.import_btn: tk.Button | None = None
+        self.canvas: tk.Canvas | None = None
+        self.scrollbar: tk.Scrollbar | None = None
+        self.scrollable_frame: tk.Frame | None = None
+        self.status_bar: tk.Label | None = None
         
         # Variables de control de UI (deben estar antes de setup_ui)
-        self.search_var = tk.StringVar()
-        self.var_live = tk.BooleanVar()
-        self.var_recent = tk.BooleanVar()
-        self.var_month = tk.BooleanVar()
-        self.quality_var = tk.StringVar(value="720")
-        self.status_var = tk.StringVar(value="Listo")
+        self.search_var: tk.StringVar = tk.StringVar()
+        self.quality_var: tk.StringVar = tk.StringVar(value="360p")
+        self.status_var: tk.StringVar = tk.StringVar(value="Listo")
         
         # Colores Tema Oscuro Pastel
         self.bg_main = "#2b2b36"       # Fondo principal oscuro suave
@@ -68,6 +74,17 @@ class BatubeApp:
         
         # UI Setup
         self.setup_ui()
+        
+        # Le decimos al linter (Pyre) que después de setup_ui todos estos ya no son None
+        assert self.subs_btn is not None
+        assert self.import_btn is not None
+        assert self.canvas is not None
+        assert self.scrollbar is not None
+        assert self.scrollable_frame is not None
+        assert self.progress is not None
+        assert self.progress_frame is not None
+        assert self.status_bar is not None
+        assert self.search_entry is not None
         
         # Cargar suscripciones previas si existen
         self.check_saved_subscriptions()
@@ -103,14 +120,6 @@ class BatubeApp:
         search_btn = tk.Button(row1, text="Buscar", command=self.do_search, bg=self.bg_button, fg=self.fg_text, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
         search_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Filters Frame
-        filters_frame = tk.Frame(row1, bg=self.bg_main)
-        filters_frame.pack(side=tk.LEFT, padx=5)
-        
-        tk.Checkbutton(filters_frame, text="En Vivo", variable=self.var_live, bg=self.bg_main, fg=self.fg_text, selectcolor=self.bg_panel, activeforeground=self.fg_text, activebackground=self.bg_main).pack(side=tk.LEFT)
-        tk.Checkbutton(filters_frame, text="Este Mes", variable=self.var_month, bg=self.bg_main, fg=self.fg_text, selectcolor=self.bg_panel, activeforeground=self.fg_text, activebackground=self.bg_main).pack(side=tk.LEFT)
-        tk.Checkbutton(filters_frame, text="Más recientes", variable=self.var_recent, bg=self.bg_main, fg=self.fg_text, selectcolor=self.bg_panel, activeforeground=self.fg_text, activebackground=self.bg_main).pack(side=tk.LEFT)
-        
         # Row 2: Quality and Subscriptions
         row2 = tk.Frame(top_frame, bg=self.bg_main)
         row2.pack(fill=tk.X)
@@ -132,53 +141,72 @@ class BatubeApp:
         self.subs_btn.pack(side=tk.LEFT, padx=2)
         
         self.import_btn = tk.Button(subs_controls, text="Importar CSV", command=self.import_new_csv, bg=self.bg_panel, fg=self.fg_muted, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
-        self.import_btn.pack(side=tk.LEFT, padx=5)
+        self.import_btn.pack(side=tk.RIGHT, padx=10)
         
+        # Barra Inferior para Status y Progress, justo debajo de controles
+        bottom_bar = tk.Frame(top_frame, bg=self.bg_panel)
+        bottom_bar.pack(fill=tk.X, pady=(5, 0))
+        
+        self.status_bar = tk.Label(bottom_bar, textvariable=self.status_var, bd=0, anchor=tk.W, bg=self.bg_panel, fg=self.fg_muted, padx=10, pady=2)
+        if self.status_bar:
+            self.status_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+        self.progress_frame = tk.Frame(bottom_bar, bg=self.bg_panel)
+        # Siempre mostramos el frame de progreso a la derecha
+        self.progress_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.progress = ttk.Progressbar(self.progress_frame, orient=tk.HORIZONTAL, length=150, mode='determinate')
+        if self.progress and self.progress_frame:
+            self.progress.pack(side=tk.RIGHT, padx=10, pady=2)
+            
         # Center Frame for results (Scrollable)
         self.canvas = tk.Canvas(self.root, bg=self.bg_main, highlightthickness=0)
         self.scrollbar = tk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
+        # Hacemos que el frame scrolleable comparta el color de fondo principal
         self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_main)
 
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(
-                scrollregion=self.canvas.bbox("all")
+        if self.canvas and self.scrollbar and self.scrollable_frame:
+            self.scrollable_frame.bind(
+                "<Configure>",
+                lambda e: self.canvas.configure(
+                    scrollregion=self.canvas.bbox("all")
+                )
             )
-        )
 
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+            # Insertamos con anchor "n" (North/Arriba al Medio)
+            self.canvas_window = self.canvas.create_window((self.canvas.winfo_width()/2, 0), window=self.scrollable_frame, anchor="n")
+            
+            # Cada vez que el Canvas cambie de tamaño, ajustamos la posición X del frame al medio del Canvas
+            def _on_canvas_configure(event):
+                if self.canvas and self.canvas_window:
+                    self.canvas.coords(self.canvas_window, (event.width / 2, 0))
+                    
+            self.canvas.bind("<Configure>", _on_canvas_configure)
 
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+            self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+            self.canvas.pack(side="left", fill="both", expand=True)
+            self.scrollbar.pack(side="right", fill="y")
         
         # Mouse Wheel Binding para scroll
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        # Para Linux (X11) usa Button-4 y Button-5
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
-        
-        # Progress Bar (oculta por defecto)
-        self.progress_frame = tk.Frame(self.root, bg=self.bg_panel)
-        # Se empaca dinámicamente según sea necesario
-        self.progress = ttk.Progressbar(self.progress_frame, orient=tk.HORIZONTAL, length=200, mode='determinate')
-        self.progress.pack(fill=tk.X, padx=2, pady=2)
-
-        # Status Bar
-        self.status_bar = tk.Label(self.root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W, bg=self.bg_panel, fg=self.fg_muted, padx=10)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-        self.progress_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        if self.canvas:
+            self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+            # Para Linux (X11) usa Button-4 y Button-5
+            self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
+            self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
 
     def _on_mousewheel(self, event):
         # Desplazamiento normal (Windows/MacOS)
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        if self.canvas:
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         
     def _on_mousewheel_linux(self, event):
         # Desplazamiento en Linux
-        if event.num == 4:
-            self.canvas.yview_scroll(-1, "units")
-        elif event.num == 5:
-            self.canvas.yview_scroll(1, "units")
+        if self.canvas:
+            if event.num == 4:
+                self.canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                self.canvas.yview_scroll(1, "units")
 
     def nav_up(self, event):
         if not self.result_frames or self.selected_index <= 0:
@@ -223,7 +251,7 @@ class BatubeApp:
         elif hasattr(self, 'load_more_btn') and self.load_more_btn and self.selected_index == len(self.result_frames):
             frame = self.load_more_btn
             
-        if frame:
+        if frame and self.canvas:
             # Obtener las coordenadas relativas del frame respecto al canvas
             frame_y = frame.winfo_y()
             frame_h = frame.winfo_height()
@@ -260,7 +288,14 @@ class BatubeApp:
         if not query:
             return
             
-        self.status_var.set("Buscando...")
+        if self.status_var:
+            self.status_var.set("Buscando...")
+        
+        # Iniciar animación progress bar (ficticia para búsquedas)
+        if self.progress:
+            self.progress.configure(mode='indeterminate')
+            self.progress.start(10)
+            
         self.clear_results()
         
         # Reiniciar Estado de Paginación
@@ -277,7 +312,14 @@ class BatubeApp:
         if not self.current_query:
             return
             
-        self.status_var.set("Cargando más videos...")
+        if self.status_var:
+            self.status_var.set("Cargando más videos...")
+            
+        # Iniciar animación progress bar (ficticia para búsquedas)
+        if self.progress:
+            self.progress.configure(mode='indeterminate')
+            self.progress.start(10)
+            
         self._remove_load_more_btn()
         
         # Sumamos 10 al offset
@@ -289,12 +331,9 @@ class BatubeApp:
     def _async_search(self, query, offset):
         try:
             results = self.engine.search_videos(
-                query=query,
-                max_results=self.results_per_page,
-                offset=offset,
-                filter_live=self.var_live.get(),
-                filter_recent=self.var_recent.get(),
-                filter_month=self.var_month.get()
+                query, 
+                max_results=20, 
+                offset=offset
             )
             
             self.root.after(0, self.display_results, results, offset > 0)
@@ -318,7 +357,8 @@ class BatubeApp:
             return
         
         self.subscription_file = file_path
-        self.status_var.set("Importando lista de canales...")
+        if self.status_var:
+            self.status_var.set("Importando lista de canales...")
         threading.Thread(target=self._async_import_subs, args=(file_path,), daemon=True).start()
 
     def _async_import_subs(self, file_path):
@@ -326,7 +366,8 @@ class BatubeApp:
             channels = self.engine.parse_subscription_csv(file_path)
             if not channels:
                 self.root.after(0, lambda: messagebox.showinfo("Información", "No se encontraron canales válidos."))
-                self.root.after(0, lambda: self.status_var.set("Listo"))
+                if self.status_var:
+                    self.root.after(0, lambda: self.status_var.set("Listo"))
                 return
             
             self.all_subs_channels = channels
@@ -340,16 +381,20 @@ class BatubeApp:
             
             # Se quita la actualización automática a petición del usuario.
             # Debe presionar el botón de "Actualizar Hoy" manualmente.
-            self.root.after(0, lambda: self.status_var.set(f"Suscripciones cargadas ({len(channels)} canales)."))
+            if self.status_var:
+                self.root.after(0, lambda: self.status_var.set(f"Suscripciones cargadas ({len(channels)} canales)."))
             
         except Exception as e:
-            self.root.after(0, lambda: self.status_var.set(f"Error importando subs: {e}"))
+            if self.status_var:
+                self.root.after(0, lambda: self.status_var.set(f"Error importando subs: {e}"))
 
     def _start_update_today(self):
         self.clear_results()
-        self.status_var.set("Buscando videos de hoy...")
-        self.progress['value'] = 0
-        self.progress['maximum'] = len(self.all_subs_channels)
+        if self.status_var:
+            self.status_var.set("Buscando videos de hoy...")
+        if self.progress_frame and self.progress:
+            self.progress['value'] = 0
+            self.progress['maximum'] = len(self.all_subs_channels)
         threading.Thread(target=self._async_update_today, daemon=True).start()
 
     def _async_update_today(self):
@@ -359,8 +404,10 @@ class BatubeApp:
             
             for i, channel in enumerate(self.all_subs_channels):
                 # Actualizar progreso
-                self.root.after(0, lambda v=i+1: self.progress.configure(value=v))
-                self.root.after(0, lambda c=channel['title']: self.status_var.set(f"Revisando ({i+1}/{total}): {c}"))
+                if self.progress:
+                    self.root.after(0, lambda v=i+1: self.progress.configure(value=v))
+                if self.status_var:
+                    self.root.after(0, lambda c=channel['title']: self.status_var.set(f"Revisando ({i+1}/{total}): {c}"))
                 
                 video = self.engine.get_latest_video_if_today(channel['url'])
                 if video:
@@ -368,16 +415,20 @@ class BatubeApp:
             
             if found_videos:
                 self.root.after(0, lambda: self.display_results(found_videos))
-                self.root.after(0, lambda: self.status_var.set(f"¡Listo! Se encontraron {len(found_videos)} videos de hoy."))
+                if self.status_var:
+                    self.root.after(0, lambda: self.status_var.set(f"¡Listo! Se encontraron {len(found_videos)} videos de hoy."))
             else:
-                self.root.after(0, lambda: self.status_var.set("No hay videos nuevos hoy en tus suscripciones."))
+                if self.status_var:
+                    self.root.after(0, lambda: self.status_var.set("No hay videos nuevos hoy en tus suscripciones."))
                 self.root.after(0, lambda: messagebox.showinfo("Babinium Play", "No se encontraron videos subidos el día de hoy en tus canales."))
                 
         except Exception as e:
-            self.root.after(0, lambda: self.status_var.set(f"Error actualizando: {e}"))
+            if self.status_var:
+                self.root.after(0, lambda: self.status_var.set(f"Error actualizando: {e}"))
         finally:
             # Reset progreso al terminar
-            self.root.after(3000, lambda: self.progress.configure(value=0))
+            if self.progress:
+                self.root.after(3000, lambda: self.progress.configure(value=0))
 
     def _remove_load_more_btn(self):
         if hasattr(self, 'load_more_btn') and self.load_more_btn:
@@ -386,8 +437,9 @@ class BatubeApp:
             
     def clear_results(self):
         self._remove_load_more_btn()
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        if self.scrollable_frame:
+            for widget in self.scrollable_frame.winfo_children():
+                widget.destroy()
         self.image_cache.clear()
         self.result_frames = []
         self.selected_index = -1
@@ -413,11 +465,17 @@ class BatubeApp:
         lbl_widget.config(text="Subido: Fecha desconocida")
 
     def display_results(self, results, append=False):
+        # Detener animación de progreso si estaba corriendo
+        if self.progress:
+            self.progress.stop()
+            self.progress.configure(mode='determinate', value=0)
+            
         if not append:
             self.clear_results()
             
         if not results and not append:
-            self.status_var.set("No se encontraron resultados.")
+            if self.status_var:
+                self.status_var.set("No se encontraron resultados.")
             return
 
         start_idx = len(self.result_frames) # donde empezamos a guardar nuevos items
@@ -464,7 +522,8 @@ class BatubeApp:
             # Añadimos el evento <Return> localmente a este cuadro (si se navegó con flechas, tendrá foco)
             frame.bind("<Return>", lambda e: self.play_selected())
                 
-        self.status_var.set(f"Mostrando {len(self.result_frames)} resultados.")
+        if self.status_var:
+            self.status_var.set(f"Mostrando {len(self.result_frames)} resultados.")
         
         # Botón para cargar más
         if results and len(results) >= 1:
@@ -481,7 +540,8 @@ class BatubeApp:
         # Forzar actualización agresiva de scroll
         self.root.update_idletasks()
         # Pequeño delay de 100ms para asegurar que el motor de renderizado de AntiX se entere
-        self.root.after(100, lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        if self.canvas:
+            self.root.after(100, lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         
         # Seleccionar automáticamente el primero solo si es búsqueda nueva
         if self.result_frames and not append:
@@ -509,14 +569,21 @@ class BatubeApp:
 
     def play(self, url, source_frame):
         if self.is_playing:
-            self.status_var.set("Ya hay un video reproduciéndose...")
+            if self.status_var:
+                self.status_var.set("Ya hay un video reproduciéndose...")
             return
             
         self.is_playing = True
         self.playing_frame = source_frame
         
         quality = self.quality_var.get()
-        self.status_var.set(f"Cargando video en mpv ({quality})...")
+        if self.status_var:
+            self.status_var.set(f"Cargando video en mpv ({quality})...")
+            
+        # Animación de carga
+        if self.progress:
+            self.progress.configure(mode='indeterminate')
+            self.progress.start(10)
         
         # Colorear recuadro de amarillo oscuro para indicar estado "Cargando"
         source_frame.config(bg=self.bg_playing)
@@ -525,30 +592,51 @@ class BatubeApp:
         threading.Thread(target=self._async_play, args=(url, quality, source_frame), daemon=True).start()
 
     def _async_play(self, url, quality, source_frame):
-        # Primero obtenemos el enlace directo
-        self.status_var.set(f"Extrayendo enlace directo ({quality})...")
-        stream_url = self.engine.get_stream_url(url, quality=quality)
+        if self.status_var:
+            self.root.after(0, lambda: self.status_var.set(f"Extrayendo enlace directo ({quality}p)..."))
+        stream_data = self.engine.get_stream_url(url, quality=quality)
         
-        if not stream_url:
-            self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo extraer el enlace del video."))
+        if not stream_data or not stream_data.get('video'):
+            self.root.after(0, lambda: messagebox.showerror("Error", stream_data.get('error', "No se pudo extraer el enlace del video.")))
             self.root.after(0, lambda: source_frame.config(bg=self.bg_panel))
+            if self.progress:
+                self.root.after(0, lambda: self.progress.stop())
+                self.root.after(0, lambda: self.progress.configure(mode='determinate', value=0))
             self.is_playing = False
             self.playing_frame = None
             return
 
-        self.status_var.set(f"Abriendo mpv...")
-        process = play_video(stream_url, quality=quality)
+        if self.status_var:
+            self.root.after(0, lambda: self.status_var.set(f"Abriendo mpv..."))
+            
+        process = play_video(stream_data, quality=quality)
+        
+        # Detener animación cuando mpv termina de cargar/arrancar
+        if self.progress:
+            self.root.after(0, lambda: self.progress.stop())
+            self.root.after(0, lambda: self.progress.configure(mode='determinate', value=0))
+
         if not process:
             self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo abrir mpv."))
             self.root.after(0, lambda: source_frame.config(bg=self.bg_panel)) # Restaurar a seleccionado normal
             self.is_playing = False
             self.playing_frame = None
         else:
-            self.root.after(0, lambda: self.status_var.set("Reproduciendo en mpv."))
+            if self.status_var:
+                self.root.after(0, lambda: self.status_var.set("Reproduciendo en mpv."))
             # Esperar a que el proceso de mpv termine
             process.wait()
             # Una vez que se cierra mpv, restaurar el color del frame en la GUI principal
-            self.root.after(0, lambda: source_frame.config(bg=self.bg_select if self.result_frames and self.result_frames[self.selected_index]['frame'] == source_frame else self.bg_panel))
-            self.root.after(0, lambda: self.status_var.set("Listo")) 
+            def restore_bg():
+                if self.result_frames and self.selected_index >= 0 and self.selected_index < len(self.result_frames):
+                    is_selected = self.result_frames[self.selected_index]['frame'] == source_frame
+                    source_frame.config(bg=self.bg_select if is_selected else self.bg_panel)
+                else:
+                    source_frame.config(bg=self.bg_panel)
+            
+            self.root.after(0, restore_bg)
+            
+            if self.status_var:
+                self.root.after(0, lambda: self.status_var.set("Listo")) 
             self.is_playing = False
             self.playing_frame = None

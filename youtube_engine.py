@@ -16,7 +16,7 @@ class YouTubeEngine:
             }
         }
 
-    def search_videos(self, query, max_results=10, offset=0, filter_live=False, filter_recent=False, filter_month=False):
+    def search_videos(self, query, max_results=10, offset=0):
         """
         Busca videos usando yt-dlp usando ytsearch.
         Permite usar 'offset' para simular paginación trayendo más desde el inicio y recortando.
@@ -28,21 +28,8 @@ class YouTubeEngine:
         opts = dict(self.ydl_opts)
         opts['playlistend'] = total_needed
         
-        # Preparar parametros de filtro 'sp' para la URL
-        sp = ""
-        if filter_month:
-            sp = "EgQIBBAB" # Filtro: Este Mes
-        elif filter_recent:
-            sp = "CAISAhAB" # Filtro: Hoy + Orden: Recientes (más fiable)
-            
-        if filter_live:
-            query += " live"
-            
         encoded_query = urllib.parse.quote(query)
         search_query = f"https://www.youtube.com/results?search_query={encoded_query}&hl=es-419&gl=US"
-        
-        if sp:
-            search_query += f"&sp={sp}"
             
         results = []
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -224,13 +211,15 @@ class YouTubeEngine:
     def get_stream_url(self, video_url, quality="360"):
         """
         Extrae el enlace directo de reproducción.
-        Para máxima compatibilidad en hardware viejo, buscamos el mejor formato 
-        único (video+audio) que no supere la calidad pedida.
+        Soporta DASH (video+audio separado) para permitir todas las resoluciones.
+        Retorna un dict con { 'video': url, 'audio': url_audio o None }
         """
         q = str(quality).replace("p", "")
-        # Formato: mejor que tenga audio y video juntos, altura <= q
-        # Priorizamos mp4 para mayor compatibilidad
-        ytdl_format = f"best[height<={q}][ext=mp4]/best[height<={q}]/best"
+        # Formato: 
+        # 1. Video MP4 (avc1) <= q + Audio M4A (mp4a) -> para maxima compatibilidad en hardware viejo
+        # 2. Cualquier video <= q + mejor audio
+        # 3. Formato unico best <= q (como fallback o lives)
+        ytdl_format = f"bestvideo[height<={q}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={q}]+bestaudio/best[height<={q}]/best"
         
         opts = {
             'format': ytdl_format,
@@ -242,7 +231,24 @@ class YouTubeEngine:
         with yt_dlp.YoutubeDL(opts) as ydl:
             try:
                 info = ydl.extract_info(video_url, download=False)
-                return info.get('url')
+                
+                # Obtener headers si existen, para evitar error 403 en mpv
+                headers = info.get('http_headers', {})
+                
+                # Si yt-dlp combinó dos formatos (video + audio por separado)
+                if 'requested_formats' in info and len(info['requested_formats']) >= 2:
+                    return {
+                        'video': info['requested_formats'][0]['url'],
+                        'audio': info['requested_formats'][1]['url'],
+                        'headers': info['requested_formats'][0].get('http_headers') or headers
+                    }
+                
+                # Si es un formato único (como en directos o formatos viejos)
+                return {
+                    'video': info.get('url'),
+                    'audio': None,
+                    'headers': headers
+                }
             except Exception as e:
                 print(f"Error extrayendo stream URL: {e}")
                 return None

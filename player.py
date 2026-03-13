@@ -1,29 +1,49 @@
 import subprocess
 import os
 
-def play_video(stream_url, quality="360"):
+def play_video(stream_data, quality="360"):
     """
     Inicia mpv en un nuevo proceso y reproduce el enlace directo.
-    No bloquea la ejecución del hilo actual.
+    stream_data puede ser un dict (DASH) o un string (URL directa).
     """
     try:
+        headers = None
+        if isinstance(stream_data, dict):
+            video_url = stream_data.get('video')
+            audio_url = stream_data.get('audio')
+            headers = stream_data.get('headers')
+        else:
+            video_url = stream_data
+            audio_url = None
+
+        if not video_url:
+            return False
+
         # Log path
         log_file = "/tmp/babinium-play-mpv.log"
         
         # mpv command optimizado para hardware viejo y enlaces directos
         cmd = [
             "mpv",
-            # Desactivamos ytdl interno ya que pasamos el enlace directo
             "--ytdl=no",
-            # Título de la ventana
             "--title=Babinium Play - Reproduciendo",
-            # Optimización para hardware bajo
             "--no-video-unscaled",
             "--cache=yes",
             "--demuxer-max-bytes=20M", 
-            "--demuxer-max-back-bytes=10M",
-            stream_url
+            "--demuxer-max-back-bytes=10M"
         ]
+
+        if headers:
+            for k, v in headers.items():
+                if k.lower() == 'user-agent':
+                    cmd.append(f"--user-agent={v}")
+                else:
+                    cmd.append(f"--http-header-fields-append={k}: {v}")
+
+        if audio_url:
+            cmd.append(f"--audio-file={audio_url}")
+        
+        cmd.append(video_url)
         
         # Escribir comando en el log para depuración
         with open(log_file, "a") as f:
