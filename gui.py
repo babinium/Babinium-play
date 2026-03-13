@@ -804,7 +804,7 @@ class BatubeApp:
     def _apply_image(self, lbl_widget, photo):
         try:
             if lbl_widget.winfo_exists():
-                lbl_widget.config(image=photo, text="")
+                lbl_widget.config(image=photo, text="", width=160, height=90)
                 lbl_widget.image = photo 
                 self.image_cache.append(photo)
             else:
