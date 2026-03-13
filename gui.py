@@ -131,10 +131,10 @@ class BatubeApp:
         found_idx = next((i for i, f in enumerate(self.favorites) if f['url'] == item['url']), -1)
         if found_idx >= 0:
             self.favorites.pop(found_idx)
-            btn.config(text="🤍", fg=self.fg_muted)
+            btn.config(text="♡", fg=self.fg_muted)
         else:
             self.favorites.append(item)
-            btn.config(text="❤️", fg="red")
+            btn.config(text="♥", fg="red")
         self.save_favorites()
 
     def remove_favorite(self, item, frame):
@@ -186,7 +186,7 @@ class BatubeApp:
         self.import_btn = tk.Button(subs_controls, text="Importar CSV", command=self.import_new_csv, bg=self.bg_panel, fg=self.fg_muted, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
         self.import_btn.pack(side=tk.LEFT, padx=10)
         
-        self.fav_btn = tk.Button(subs_controls, text="Favoritos ❤️", command=self.show_favorites, bg=self.bg_panel, fg=self.fg_text, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
+        self.fav_btn = tk.Button(subs_controls, text="Favoritos ♥", command=self.show_favorites, bg=self.bg_panel, fg=self.fg_text, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
         self.fav_btn.pack(side=tk.LEFT, padx=2)
         
         # Barra Inferior para Status y Progress, justo debajo de controles
@@ -633,7 +633,7 @@ class BatubeApp:
             btn_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
             
             is_fav = any(f['url'] == item['url'] for f in self.favorites)
-            heart_text = "❤️" if is_fav else "🤍"
+            heart_text = "♥" if is_fav else "♡"
             heart_fg = "red" if is_fav else self.fg_muted
             
             def make_toggle(it, bt):
