@@ -337,6 +337,11 @@ class BatubeApp:
     def do_search(self):
         query = self.search_var.get().strip()
         if not query:
+            self.clear_results()
+            self.previous_results.clear()
+            gc.collect()
+            if self.status_var:
+                self.status_var.set("Búsqueda limpiada. Memoria liberada.")
             return
             
         if self.status_var:
@@ -493,8 +498,15 @@ class BatubeApp:
             for widget in self.scrollable_frame.winfo_children():
                 widget.destroy()
         
-        # Limpiar listas explícitamente y alocar nueva memoria
+        # Destruir imagenes del intérprete Tcl/Tk para evitar memory leak
+        for img in self.image_cache:
+            try:
+                self.root.tk.call("image", "delete", img.name)
+            except Exception:
+                pass
         self.image_cache.clear()
+        
+        # Limpiar listas explícitamente y alocar nueva memoria
         self.result_frames.clear()
         self.selected_index = -1
         
@@ -534,7 +546,8 @@ class BatubeApp:
                 'Accept-Language': 'es-419,es;q=0.9'
             }
             req = urllib.request.Request(url, headers=headers)
-            html = urllib.request.urlopen(req).read().decode('utf-8')
+            with urllib.request.urlopen(req) as response:
+                html = response.read().decode('utf-8')
             match = re.search(r'"publishDate":"([^"]+)"', html)
             if match:
                 raw_date = match.group(1)
@@ -553,7 +566,8 @@ class BatubeApp:
                 'User-Agent': 'Mozilla/5.0'
             }
             req = urllib.request.Request(url, headers=headers)
-            html = urllib.request.urlopen(req).read().decode('utf-8')
+            with urllib.request.urlopen(req) as response:
+                html = response.read().decode('utf-8')
             match = re.search(r'"stats":\[\{"runs":\[\{"text":"([0-9,.]+)"\}\,', html)
             if not match:
                 match = re.search(r'"videoCountText":\{"runs":\[\{"text":"([0-9,.]+)"\}', html)
