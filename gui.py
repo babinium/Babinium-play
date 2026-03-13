@@ -494,8 +494,11 @@ class BatubeApp:
     def clear_results(self):
         self._remove_load_more_btn()
         self._remove_back_btn()
+        
+        # Ocultar primero para liberar recursos de renderizado si existe
         if self.scrollable_frame:
             for widget in self.scrollable_frame.winfo_children():
+                widget.pack_forget()
                 widget.destroy()
         
         # Destruir imagenes del intérprete Tcl/Tk para evitar memory leak
@@ -510,7 +513,10 @@ class BatubeApp:
         self.result_frames.clear()
         self.selected_index = -1
         
-        # Forzar la recolección de basura (Garbage Collector) para liberar RAM inmediatamente
+        # Asegurarse de que Tkinter procesó las destrucciones antes de ejecutar GC
+        self.root.update_idletasks()
+        
+        # Forzar la recolección de basura (Garbage Collector)
         gc.collect()
 
     def show_favorites(self):
