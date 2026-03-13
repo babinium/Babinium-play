@@ -798,8 +798,22 @@ class BatubeApp:
                 photo = ImageTk.PhotoImage(image)
             del img_data # Limpieza inmediata
             self.root.after(0, lambda: self._apply_image(lbl_widget, photo))
+        except Exception as e:
+            print(f"Error asincrono en carga de imagen: {e}")
+
+    def _apply_image(self, lbl_widget, photo):
+        try:
+            if lbl_widget.winfo_exists():
+                lbl_widget.config(image=photo, text="")
+                lbl_widget.image = photo 
+                self.image_cache.append(photo)
+            else:
+                self.root.tk.call("image", "delete", photo.name)
         except Exception:
-            pass
+            try:
+                self.root.tk.call("image", "delete", photo.name)
+            except:
+                pass
 
     def play(self, url, source_frame):
         if self.is_playing:
