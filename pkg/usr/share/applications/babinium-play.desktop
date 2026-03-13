@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Babinium Play
+Comment=Client for YouTube (Low Spec)
+Exec=babinium-play
+Icon=/usr/share/pixmaps/babinium-play.png
+Type=Application
+Categories=AudioVideo;Video;Player;
+Terminal=false
