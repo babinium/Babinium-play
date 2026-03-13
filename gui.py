@@ -792,7 +792,7 @@ class BatubeApp:
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req) as raw_data:
-                img_data = raw_data.read(300000) # Cap to 300KB
+                img_data = raw_data.read() # Las imagenes HQ son grandes, no poner cap
             with Image.open(io.BytesIO(img_data)) as image:
                 image.thumbnail((160, 90), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image)
