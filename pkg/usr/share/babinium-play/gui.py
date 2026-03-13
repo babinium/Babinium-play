@@ -553,8 +553,10 @@ class BatubeApp:
             }
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req) as response:
-                html = response.read().decode('utf-8')
+                # Evita recargar 2MB de HTML en la RAM. Max 350KB.
+                html = response.read(350000).decode('utf-8', errors='ignore')
             match = re.search(r'"publishDate":"([^"]+)"', html)
+            del html # Destruye el hilo gigante inmediatamente
             if match:
                 raw_date = match.group(1)
                 # Parsear YYYY-MM-DD
@@ -573,10 +575,11 @@ class BatubeApp:
             }
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req) as response:
-                html = response.read().decode('utf-8')
+                html = response.read(400000).decode('utf-8', errors='ignore')
             match = re.search(r'"stats":\[\{"runs":\[\{"text":"([0-9,.]+)"\}\,', html)
             if not match:
                 match = re.search(r'"videoCountText":\{"runs":\[\{"text":"([0-9,.]+)"\}', html)
+            del html # Libera
             if match:
                 count = match.group(1)
                 self.root.after(0, lambda: lbl_widget.config(text=f"🗂️ [PLAYLIST: {count} videos] {original_title}"))
@@ -785,21 +788,18 @@ class BatubeApp:
             item_info = self.result_frames[index]
             self.play(item_info['url'], item_info['frame'])
 
-    def _load_image_async(self, url, label_widget):
+    def _load_image_async(self, url, lbl_widget):
         try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                img_data = response.content
-                image = Image.open(io.BytesIO(img_data))
-                image.thumbnail((160, 90))
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as raw_data:
+                img_data = raw_data.read(300000) # Cap to 300KB
+            with Image.open(io.BytesIO(img_data)) as image:
+                image.thumbnail((160, 90), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image)
-                self.root.after(0, self._set_image, label_widget, photo)
+            del img_data # Limpieza inmediata
+            self.root.after(0, lambda: self._apply_image(lbl_widget, photo))
         except Exception:
             pass
-
-    def _set_image(self, label_widget, photo):
-        self.image_cache.append(photo)
-        label_widget.config(image=photo, text="", width=160, height=90)
 
     def play(self, url, source_frame):
         if self.is_playing:
