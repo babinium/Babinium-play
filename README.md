@@ -21,6 +21,8 @@
 
 Si instalas Babinium Play usando el paquete `.deb`, no necesitas instalar las dependencias manualmente. `apt` se encarga de resolverlas.
 
+**Importante:** Babinium Play reproduce los videos usando **mpv**, por lo que el sistema debe tener `mpv` instalado. Si instalas con `apt install ./babinium-play_1.2.1_all.deb`, `apt` lo instalará automáticamente si falta.
+
 El paquete `.deb` declara estas dependencias del sistema:
 
 - `python3`
