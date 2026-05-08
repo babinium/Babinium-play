@@ -2,6 +2,7 @@ import yt_dlp
 import datetime
 import csv
 import os
+import urllib.parse
 
 class YouTubeEngine:
     def __init__(self):
@@ -12,6 +13,7 @@ class YouTubeEngine:
             'no_warnings': True,
             'ignoreerrors': True,
             'cachedir': False,
+            'socket_timeout': 8,
             'http_headers': {
                 'Accept-Language': 'es-419,es;q=0.9'
             }
@@ -22,9 +24,7 @@ class YouTubeEngine:
         Busca videos usando yt-dlp usando ytsearch.
         Permite usar 'offset' para simular paginación trayendo más desde el inicio y recortando.
         """
-        import urllib.parse
-        # Pedimos el doble para compensar los que filtramos (sin miniatura, etc)
-        total_needed = (offset + max_results) * 2
+        total_needed = offset + max_results
         
         opts = dict(self.ydl_opts)
         opts['playlistend'] = total_needed
@@ -40,7 +40,7 @@ class YouTubeEngine:
                     for entry in info['entries']:
                         if entry:
                             # Filtrar para asegurar que es un video o una lista de reproducción
-                            url = entry.get('url', '')
+                            url = self.normalize_youtube_url(entry.get('webpage_url') or entry.get('url', ''))
                             is_video = '/watch?' in url or '/shorts/' in url
                             is_playlist = '/playlist?' in url or (entry.get('_type') == 'playlist' and 'list=' in url)
 
@@ -48,10 +48,9 @@ class YouTubeEngine:
                                 continue
                             
                             # Si es un playlist que no tiene id en la url, intentar sacar el id de 'list='
-                            import urllib.parse as up
                             p_id = entry.get('id')
                             if is_playlist and 'list=' in url:
-                                qs = up.parse_qs(up.urlparse(url).query)
+                                qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
                                 if 'list' in qs:
                                     p_id = qs['list'][0]
                                     
@@ -77,6 +76,15 @@ class YouTubeEngine:
         # Retornamos solo los elementos desde el offset pedido hasta el final del paquete
         return results[offset:offset+max_results]
 
+    def normalize_youtube_url(self, url):
+        if not url:
+            return ''
+        if url.startswith('//'):
+            return f"https:{url}"
+        if url.startswith('/'):
+            return f"https://www.youtube.com{url}"
+        return url
+
     def format_duration(self, seconds):
         if not seconds:
             return "N/A"
@@ -84,15 +92,47 @@ class YouTubeEngine:
         
     def format_date(self, val):
         try:
+            if isinstance(val, datetime.datetime):
+                return val.strftime('%d/%m/%Y')
+            if isinstance(val, datetime.date):
+                return val.strftime('%d/%m/%Y')
             # Si es timestamp numerico (epoch)
             if isinstance(val, (int, float)):
                 return datetime.datetime.fromtimestamp(val).strftime('%d/%m/%Y')
             # Si es string YYYYMMDD
-            elif isinstance(val, str) and len(val) == 8 and val.isdigit():
-                return f"{val[6:8]}/{val[4:6]}/{val[0:4]}"
+            if isinstance(val, str):
+                clean_val = val.strip()
+                if len(clean_val) == 8 and clean_val.isdigit():
+                    return f"{clean_val[6:8]}/{clean_val[4:6]}/{clean_val[0:4]}"
+                date_part = clean_val.split('T')[0]
+                parts = date_part.split('-')
+                if len(parts) == 3 and all(part.isdigit() for part in parts):
+                    return f"{parts[2]}/{parts[1]}/{parts[0]}"
         except Exception:
             pass
         return "Fecha desconocida"
+
+    def get_video_upload_date(self, video_url):
+        opts = dict(self.ydl_opts)
+        opts.update({
+            'extract_flat': False,
+            'noplaylist': True,
+            'skip_download': True,
+        })
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            try:
+                info = ydl.extract_info(video_url, download=False)
+                return self.format_date(
+                    info.get('timestamp')
+                    or info.get('upload_date')
+                    or info.get('release_timestamp')
+                    or info.get('release_date')
+                    or info.get('modified_date')
+                )
+            except Exception as e:
+                print(f"Error obteniendo fecha de subida: {e}")
+                return "Fecha desconocida"
 
     def get_best_thumbnail(self, thumbnails):
         """
@@ -165,7 +205,7 @@ class YouTubeEngine:
                             break
                         if entry:
                             # Filtrar canales/listas accidentales
-                            url = entry.get('url', '')
+                            url = self.normalize_youtube_url(entry.get('webpage_url') or entry.get('url', ''))
                             if '/watch?' not in url and '/shorts/' not in url:
                                 continue
                                 
@@ -174,7 +214,7 @@ class YouTubeEngine:
                                 item = {
                                     'id': entry.get('id'),
                                     'title': entry.get('title', 'Sin titulo'),
-                                    'url': entry.get('url'),
+                                    'url': url,
                                     'duration': self.format_duration(entry.get('duration', 0)),
                                     'thumbnail': thumbnail,
                                     'uploader': entry.get('uploader', 'Canal desconocido'),
@@ -185,7 +225,7 @@ class YouTubeEngine:
                 print(f"Error yt-dlp (channel): {e}")
         return results
 
-    def get_playlist_videos(self, playlist_url, max_results=100):
+    def get_playlist_videos(self, playlist_url, max_results=50):
         """
         Obtiene los videos de una lista de reproducción específica.
         """
@@ -200,7 +240,7 @@ class YouTubeEngine:
                 if 'entries' in info:
                     for i, entry in enumerate(info['entries']):
                         if entry:
-                            url = entry.get('url', '')
+                            url = self.normalize_youtube_url(entry.get('webpage_url') or entry.get('url', ''))
                             if '/watch?' not in url and '/shorts/' not in url:
                                 continue
                                 
@@ -244,7 +284,7 @@ class YouTubeEngine:
                         if not entry: continue
                         
                         # Validar que es un video (revisar url y webpage_url)
-                        url = entry.get('url') or entry.get('webpage_url') or ''
+                        url = self.normalize_youtube_url(entry.get('webpage_url') or entry.get('url') or '')
                         if '/watch?' not in url and '/shorts/' not in url:
                             continue
                             
@@ -284,6 +324,8 @@ class YouTubeEngine:
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            'cachedir': False,
+            'socket_timeout': 8,
         }
         
         with yt_dlp.YoutubeDL(opts) as ydl:

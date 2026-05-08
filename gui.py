@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import concurrent.futures
 import threading
 import io
-import requests
 import urllib.request
 import re
 from PIL import Image, ImageTk
@@ -33,8 +33,6 @@ class BatubeApp:
         self.current_offset: int = 0
         self.results_per_page: int = 10
         self.all_subs_channels: list[dict] = []
-        self.current_sub_idx: int = 0
-        self.subscription_file: str | None = None
         
         # Elementos UI principales declarados con hints
         self.subs_btn: tk.Button | None = None
@@ -42,7 +40,6 @@ class BatubeApp:
         self.progress: ttk.Progressbar | None = None
         self.load_more_btn: tk.Button | None = None
         self.search_entry: tk.Entry | None = None
-        self.search_entry_name: str = ""
         self.import_btn: tk.Button | None = None
         self.canvas: tk.Canvas | None = None
         self.scrollbar: tk.Scrollbar | None = None
@@ -69,6 +66,9 @@ class BatubeApp:
         
         # Variables globales de control
         self.image_cache = []
+        self.display_generation = 0
+        self.image_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        self.metadata_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.config_dir = os.path.join(pathlib.Path.home(), ".config", "babinium-play")
         os.makedirs(self.config_dir, exist_ok=True)
         self.persist_file = os.path.join(self.config_dir, "subscriptions.csv")
@@ -100,9 +100,22 @@ class BatubeApp:
         # Bindings globales de teclado (Flechas)
         self.root.bind("<Up>", self.nav_up)
         self.root.bind("<Down>", self.nav_down)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
         # El Enter se manejará a nivel de Frame/Canvas para evitar robar eventos del Entry
         # self.root.bind("<Return>", self.handle_enter)
+
+    def run_image_task(self, *args):
+        self.image_executor.submit(self._load_image_async, *args)
+
+    def run_metadata_task(self, func, *args):
+        self.metadata_executor.submit(func, *args)
+
+    def on_close(self):
+        self.display_generation += 1
+        self.image_executor.shutdown(wait=False)
+        self.metadata_executor.shutdown(wait=False)
+        self.root.destroy()
 
     def check_saved_subscriptions(self):
         """Si existe el archivo persistido, lo cargamos"""
@@ -159,7 +172,6 @@ class BatubeApp:
         self.search_entry = tk.Entry(row1, textvariable=self.search_var, width=30, bg=self.bg_entry, fg=self.fg_text, insertbackground=self.fg_text, relief=tk.FLAT)
         self.search_entry.pack(side=tk.LEFT, padx=(0, 5))
         self.search_entry.bind('<Return>', self.search_from_entry)
-        self.search_entry_name = str(self.search_entry)
         
         search_btn = tk.Button(row1, text="Buscar", command=self.do_search, bg=self.bg_button, fg=self.fg_text, relief=tk.FLAT, activebackground=self.bg_select, activeforeground=self.fg_text)
         search_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -169,10 +181,6 @@ class BatubeApp:
         row2.pack(fill=tk.X)
         
         # Quality Selector
-        quality_frame = tk.Frame(row2, bg=self.bg_main)
-        quality_frame.pack(side=tk.LEFT)
-        tk.Label(quality_frame, text="Calidad:", bg=self.bg_main, fg=self.fg_text).pack(side=tk.LEFT)
-        
         tk.Label(row2, text="Calidad:", bg=self.bg_main, fg=self.fg_muted).pack(side=tk.LEFT, padx=(0, 5))
         quality_combo = ttk.Combobox(row2, textvariable=self.quality_var, values=["144", "240", "360", "480", "720", "1080"], width=5, state="readonly")
         quality_combo.pack(side=tk.LEFT, padx=(0, 15))
@@ -388,7 +396,7 @@ class BatubeApp:
         try:
             results = self.engine.search_videos(
                 query, 
-                max_results=20, 
+                max_results=self.results_per_page,
                 offset=offset
             )
             
@@ -412,7 +420,6 @@ class BatubeApp:
         if not file_path:
             return
         
-        self.subscription_file = file_path
         if self.status_var:
             self.status_var.set("Importando lista de canales...")
         threading.Thread(target=self._async_import_subs, args=(file_path,), daemon=True).start()
@@ -492,6 +499,7 @@ class BatubeApp:
             self.load_more_btn = None
             
     def clear_results(self):
+        self.display_generation += 1
         self._remove_load_more_btn()
         self._remove_back_btn()
         
@@ -501,7 +509,7 @@ class BatubeApp:
                 widget.pack_forget()
                 widget.destroy()
         
-        # Destruir imagenes del intérprete Tcl/Tk para evitar memory leak
+        # Destruir imagenes del intérprete Tcl/Tk para evitar crecimiento de RAM
         for img in self.image_cache:
             try:
                 self.root.tk.call("image", "delete", img.name)
@@ -545,14 +553,28 @@ class BatubeApp:
             self.status_var.set("Volviendo a resultados anteriores...")
         self.display_results(self.previous_results)
 
-    def _fetch_date_async(self, url, lbl_widget):
+    def _set_upload_date_label(self, lbl_widget, upload_date):
+        if upload_date and upload_date != "Fecha desconocida":
+            text = f"Subido: {upload_date}"
+        else:
+            text = "Subido: Fecha desconocida"
+        self.root.after(0, lambda: lbl_widget.winfo_exists() and lbl_widget.config(text=text))
+
+    def _fetch_date_async(self, url, lbl_widget, generation):
+        if generation != self.display_generation:
+            return
+        upload_date = self._fetch_date(url)
+        if generation == self.display_generation:
+            self._set_upload_date_label(lbl_widget, upload_date)
+
+    def _fetch_date(self, url):
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0',
                 'Accept-Language': 'es-419,es;q=0.9'
             }
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=8) as response:
                 # Evita recargar 2MB de HTML en la RAM. Max 350KB.
                 html = response.read(350000).decode('utf-8', errors='ignore')
             match = re.search(r'"publishDate":"([^"]+)"', html)
@@ -562,31 +584,41 @@ class BatubeApp:
                 # Parsear YYYY-MM-DD
                 parts = raw_date.split('T')[0].split('-')
                 if len(parts) == 3:
-                    lbl_widget.config(text=f"Subido: {parts[2]}/{parts[1]}/{parts[0]}")
-                    return
+                    return f"{parts[2]}/{parts[1]}/{parts[0]}"
         except Exception:
             pass
-        lbl_widget.config(text="Subido: Fecha desconocida")
 
-    def _fetch_count_async(self, url, lbl_widget, original_title):
+        return self.engine.get_video_upload_date(url)
+
+    def _fetch_count_async(self, url, lbl_widget, original_title, generation):
+        if generation != self.display_generation:
+            return
+        count = self._fetch_playlist_count(url)
+        if generation != self.display_generation:
+            return
+        if count:
+            text = f"🗂️ [PLAYLIST: {count} videos] {original_title}"
+        else:
+            text = f"🗂️ [PLAYLIST] {original_title}"
+        self.root.after(0, lambda: lbl_widget.winfo_exists() and lbl_widget.config(text=text))
+
+    def _fetch_playlist_count(self, url):
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0'
             }
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=8) as response:
                 html = response.read(400000).decode('utf-8', errors='ignore')
             match = re.search(r'"stats":\[\{"runs":\[\{"text":"([0-9,.]+)"\}\,', html)
             if not match:
                 match = re.search(r'"videoCountText":\{"runs":\[\{"text":"([0-9,.]+)"\}', html)
             del html # Libera
             if match:
-                count = match.group(1)
-                self.root.after(0, lambda: lbl_widget.config(text=f"🗂️ [PLAYLIST: {count} videos] {original_title}"))
-                return
+                return match.group(1)
         except Exception:
             pass
-        self.root.after(0, lambda: lbl_widget.config(text=f"🗂️ [PLAYLIST] {original_title}"))
+        return None
 
     def display_results(self, results, append=False, is_favorites_view=False):
         # Save for later if we are not in playlist or favorites view
@@ -600,6 +632,7 @@ class BatubeApp:
             
         if not append:
             self.clear_results()
+        generation = self.display_generation
             
         if not results and not append:
             if self.status_var:
@@ -617,7 +650,7 @@ class BatubeApp:
             lbl_img.pack(side=tk.LEFT, padx=5)
             
             if item.get('thumbnail'):
-                threading.Thread(target=self._load_image_async, args=(item['thumbnail'], lbl_img), daemon=True).start()
+                self.run_image_task(item['thumbnail'], lbl_img, generation)
                 
             # Area info
             info_frame = tk.Frame(frame, bg=self.bg_panel)
@@ -642,17 +675,20 @@ class BatubeApp:
             title_lbl.pack(fill=tk.X)
             
             if item_type == 'playlist' and int(item.get('playlist_count', 0) or 0) == 0 and item.get('url'):
-                 threading.Thread(target=self._fetch_count_async, args=(item['url'], title_lbl, item.get('title')), daemon=True).start()
+                 self.run_metadata_task(self._fetch_count_async, item['url'], title_lbl, item.get('title'), generation)
             
             uploader_lbl = tk.Label(info_frame, text=item.get('uploader'), font=("Arial", 9), anchor="w", bg=self.bg_panel, fg=self.fg_playing)
             uploader_lbl.pack(fill=tk.X)
             
-            upload_date_lbl = tk.Label(info_frame, text="Subido: Cargando...", font=("Arial", 8), anchor="w", bg=self.bg_panel, fg=self.fg_muted)
+            upload_date = item.get('upload_date') or "Fecha desconocida"
+            date_text = f"Subido: {upload_date}" if upload_date != "Fecha desconocida" else "Subido: Cargando..."
+            upload_date_lbl = tk.Label(info_frame, text=date_text, font=("Arial", 8), anchor="w", bg=self.bg_panel, fg=self.fg_muted)
             upload_date_lbl.pack(fill=tk.X)
             
-            # Lanzamos subproceso ultra rapido para extraer fecha sin congelar interfaz
-            if item.get('url'):
-                threading.Thread(target=self._fetch_date_async, args=(item['url'], upload_date_lbl), daemon=True).start()
+            if upload_date == "Fecha desconocida" and item.get('url'):
+                self.run_metadata_task(self._fetch_date_async, item['url'], upload_date_lbl, generation)
+            elif upload_date == "Fecha desconocida":
+                upload_date_lbl.config(text="Subido: Fecha desconocida")
             
             duration_lbl = tk.Label(info_frame, text=f"Duración: {item.get('duration')}", font=("Arial", 8), anchor="w", bg=self.bg_panel, fg=self.fg_muted)
             duration_lbl.pack(fill=tk.X)
@@ -788,32 +824,33 @@ class BatubeApp:
             item_info = self.result_frames[index]
             self.play(item_info['url'], item_info['frame'])
 
-    def _load_image_async(self, url, lbl_widget):
+    def _load_image_async(self, url, lbl_widget, generation):
+        if generation != self.display_generation:
+            return
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as raw_data:
-                img_data = raw_data.read() # Las imagenes HQ son grandes, no poner cap
+            with urllib.request.urlopen(req, timeout=8) as raw_data:
+                img_data = raw_data.read(700000)
             with Image.open(io.BytesIO(img_data)) as image:
                 image.thumbnail((160, 90), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(image)
-            del img_data # Limpieza inmediata
-            self.root.after(0, lambda: self._apply_image(lbl_widget, photo))
+                image = image.copy()
+            del img_data
+            if generation == self.display_generation:
+                self.root.after(0, lambda: self._apply_image(lbl_widget, image, generation))
         except Exception as e:
             print(f"Error asincrono en carga de imagen: {e}")
 
-    def _apply_image(self, lbl_widget, photo):
+    def _apply_image(self, lbl_widget, image, generation):
+        if generation != self.display_generation:
+            return
         try:
             if lbl_widget.winfo_exists():
+                photo = ImageTk.PhotoImage(image)
                 lbl_widget.config(image=photo, text="", width=160, height=90)
                 lbl_widget.image = photo 
                 self.image_cache.append(photo)
-            else:
-                self.root.tk.call("image", "delete", photo.name)
         except Exception:
-            try:
-                self.root.tk.call("image", "delete", photo.name)
-            except:
-                pass
+            pass
 
     def play(self, url, source_frame):
         if self.is_playing:
@@ -848,7 +885,8 @@ class BatubeApp:
         stream_data = self.engine.get_stream_url(url, quality=quality)
         
         if not stream_data or not stream_data.get('video'):
-            self.root.after(0, lambda: messagebox.showerror("Error", stream_data.get('error', "No se pudo extraer el enlace del video.")))
+            error_msg = stream_data.get('error') if stream_data else "No se pudo extraer el enlace del video."
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
             self.root.after(0, lambda: source_frame.config(bg=self.bg_panel))
             if self.progress:
                 self.root.after(0, lambda: self.progress.stop())

@@ -36,8 +36,9 @@ def play_video(stream_data, quality="360"):
             "--title=Babinium Play - Reproduciendo",
             "--no-video-unscaled",
             "--cache=yes",
-            "--demuxer-max-bytes=20M", 
-            "--demuxer-max-back-bytes=10M",
+            "--cache-secs=10",
+            "--demuxer-max-bytes=8M",
+            "--demuxer-max-back-bytes=2M",
             f"--input-ipc-server={socket_path}"
         ]
 

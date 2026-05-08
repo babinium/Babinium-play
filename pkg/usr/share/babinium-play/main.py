@@ -1,10 +1,12 @@
 import sys
 import os
+import glob
 
 # Prioritize local venv packages to use updated yt-dlp
-venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv', 'lib', 'python3.12', 'site-packages')
-if os.path.exists(venv_path):
-    sys.path.insert(0, venv_path)
+base_dir = os.path.dirname(os.path.abspath(__file__))
+venv_paths = glob.glob(os.path.join(base_dir, 'venv', 'lib', 'python*', 'site-packages'))
+if venv_paths:
+    sys.path.insert(0, sorted(venv_paths, reverse=True)[0])
 
 import tkinter as tk
 from gui import BatubeApp

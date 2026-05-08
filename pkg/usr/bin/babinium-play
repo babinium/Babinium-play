@@ -1,0 +1,3 @@
+#!/bin/sh
+cd /usr/share/babinium-play || exit 1
+exec python3 /usr/share/babinium-play/main.py "$@"
