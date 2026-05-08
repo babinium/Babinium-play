@@ -19,12 +19,18 @@
 
 ## Requisitos
 
-- **mpv**: Reproductor de video (debe estar instalado en el sistema).
-  ```bash
-  sudo apt install mpv
-  ```
-- **Python 3.x**: El lenguaje de programación.
-- **Dependencias de Python**: Listadas en `requirements.txt`.
+Si instalas Babinium Play usando el paquete `.deb`, no necesitas instalar las dependencias manualmente. `apt` se encarga de resolverlas.
+
+El paquete `.deb` declara estas dependencias del sistema:
+
+- `python3`
+- `python3-tk`
+- `python3-pil`
+- `python3-pil.imagetk`
+- `mpv`
+- `ca-certificates`
+
+El paquete incluye una versión reciente de `yt-dlp` como código Python puro dentro de la aplicación. Esto evita problemas en distribuciones livianas o estables que suelen traer un `yt-dlp` viejo en sus repositorios.
 
 ## Instalación
 
@@ -34,9 +40,11 @@ Esta es la forma más sencilla de instalar Babinium-play en sistemas basados en 
 1. Ve a la sección de [Releases](https://github.com/babinium/Babinium-play/releases) y descarga el archivo `.deb` más reciente.
 2. Abre una terminal en la carpeta donde lo descargaste y ejecuta:
    ```bash
-   sudo apt install ./babinium-play.deb
+   sudo apt install ./babinium-play_1.2.1_all.deb
    ```
-   *Nota: Esto instalará automáticamente todas las dependencias necesarias.*
+   Si el nombre del archivo cambia en una versión futura, reemplázalo por el nombre del `.deb` que descargaste.
+
+Esto instalará automáticamente las dependencias necesarias y agregará Babinium Play al menú de aplicaciones.
 
 ### Opción 2: Desde el código fuente (Para otros sistemas o desarrolladores)
 Si no utilizas una distribución basada en Debian, o si prefieres ejecutarlo manualmente, puedes usar esta opción:
@@ -49,7 +57,11 @@ Si no utilizas una distribución basada en Debian, o si prefieres ejecutarlo man
    ```bash
    pip install -r requirements.txt
    ```
-3. Ejecuta la aplicación:
+3. Asegúrate de tener `mpv` y Tkinter instalados en tu sistema. En Debian/Ubuntu/AntiX:
+   ```bash
+   sudo apt install python3-tk python3-pil python3-pil.imagetk mpv ca-certificates
+   ```
+4. Ejecuta la aplicación:
    ```bash
    python main.py
    ```
